@@ -3,7 +3,8 @@
 
 #include <SPI.h>
 #include <LoRa.h>
-
+#include "buzzer.h"
+#include <vector>
 #define LORA_CS   5   // Chip Select
 #define LORA_RST  4   // Reset
 #define LORA_IRQ  2   // DIO0 (IRQ)
@@ -11,8 +12,9 @@
 #define LORA_MISO 19  // MISO
 #define LORA_MOSI 23  // MOSI
 
+extern std::vector<String> receivedDataList;
 
 void Lora_Setup();
-String Lora_receive();
+void Lora_receive();
 
 #endif // LIBRARY_H

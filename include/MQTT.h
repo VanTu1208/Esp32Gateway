@@ -6,6 +6,7 @@
 #include <ArduinoJson.h>
 #include "Lora_Module.h"
 #include "Wifi_Config.h"
+#include "Stm32_Community.h"
 
 extern WiFiClientSecure espClient;
 extern PubSubClient client;
@@ -22,8 +23,9 @@ struct SensorData {
   float h2s;
   float temp;
   float hum;
-  String penCode;
+  //String penCode;
   String nodeId;
+  String penCode;
 };
 
 extern String receivedTopic;
@@ -39,10 +41,6 @@ void processData(const String& data);
 void callback(char* topic, byte* payload, unsigned int length);
 void MQTT_Process(void*);
 void MQTT_Send_SensorValue(void*);
-
-
-
-
 
 extern const char* root_ca;
 

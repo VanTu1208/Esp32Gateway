@@ -1,9 +1,8 @@
 #ifndef WIFICONFIG_H
 #define WIFICONFIG_H
 
-#include <WiFi.h>
 #include <WiFiManager.h> 
-
+extern int shouldResetWiFi;
 extern WiFiManager wifiManager;
 extern String resetState;
 

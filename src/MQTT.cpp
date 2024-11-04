@@ -1,21 +1,5 @@
 #include "MQTT.h"
 
-String receivedTopic;
-String receivedPayload;
-SensorData sensorData;
-
-
-WiFiClientSecure espClient;
-PubSubClient client(espClient);
-
-const char* mqtt_broker = "f550d1a0a28e464a915234c191ab1945.s1.eu.hivemq.cloud";
-const int mqtt_port = 8883;  // SSL port
-const char* mqtt_username = "Tuslee";
-const char* mqtt_password = "ThucTapT9";
-const char* macAddress = "1000_0001";
-
-bool stateList[16] = {false}; // Now you can initialize the array here
-
 const char* root_ca =
   "-----BEGIN CERTIFICATE-----\n"
   "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n"
@@ -51,63 +35,69 @@ const char* root_ca =
 
 
 
+String receivedTopic;
+String receivedPayload;
+SensorData sensorData;
 
-void reconnect();
-void handleMqttMessage();
+WiFiClientSecure espClient;
+PubSubClient client(espClient);
 
-void MQTT_Setup(){
-    espClient.setCACert(root_ca);
-    client.setServer(mqtt_broker, mqtt_port);
-    client.setCallback(callback);
-}
+const char* mqtt_broker = "f550d1a0a28e464a915234c191ab1945.s1.eu.hivemq.cloud";
+const int mqtt_port = 8883;  // SSL port
+const char* mqtt_username = "Tuslee";
+const char* mqtt_password = "ThucTapT9";
+const char* macAddress = "1000_0001";
+
+bool stateList[16] = {false}; // Now you can initialize the array here
 
 
-void publishMessage(const char* topic, const char* payload) {
-    if (client.connected()) {
-        client.publish(topic, payload);
-        Serial.println("Published message: " + String(payload) + " to topic: " + String(topic));
-    } else {
-        Serial.println("MQTT client not connected, message not sent.");
+void reconnect() {
+    while (!client.connected()) {
+        Serial.print("Attempting MQTT connection...");
+
+        String clientID = "ESPClient-";
+        clientID += macAddress;
+
+        if (client.connect(clientID.c_str(), mqtt_username, mqtt_password)) {
+        Serial.println("connected");
+
+        // Subscribe to control topics if needed
+        for (int i = 0; i < 16; i++) {
+            char topic_ControlRelay[50];
+            char topic_ControlRequestAll[50];
+            char topic_ResetWifi[50];
+            char topic_ControlRequest[50];
+            char topic_PowerRequest[50];
+            snprintf(topic_ControlRelay, sizeof(topic_ControlRelay), "%s/controls/%d/#", macAddress, i);
+            snprintf(topic_ControlRequestAll, sizeof(topic_ControlRequestAll), "%s/controls/request", macAddress);
+            snprintf(topic_ResetWifi, sizeof(topic_ResetWifi), "%s/resetwifi/request", macAddress);
+            snprintf(topic_ControlRequest, sizeof(topic_ControlRequest), "%s/controls/+/request", macAddress);
+            snprintf(topic_PowerRequest, sizeof(topic_PowerRequest), "%s/power/request", macAddress);
+            client.subscribe(topic_ControlRelay);
+            client.subscribe(topic_ControlRequestAll);
+            client.subscribe(topic_ResetWifi);
+            client.subscribe(topic_ControlRequest);
+            client.subscribe(topic_PowerRequest);
+
+        }
+        } else {
+        Serial.print("failed, rc=");
+        Serial.print(client.state());  // Print the reason for failure
+        if (client.state() == -1) {
+            Serial.println("Connection refused, incorrect protocol version");
+        } else if (client.state() == -2) {
+            Serial.println("Connection refused, identifier rejected");
+        } else if (client.state() == -3) {
+            Serial.println("Connection refused, broker unavailable");
+        } else if (client.state() == -4) {
+            Serial.println("Connection refused, bad username or password");
+        } else if (client.state() == -5) {
+            Serial.println("Connection refused, not authorized");
+        }
+        Serial.println(" try again in 5 seconds");
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        }
     }
-}
-
-
-void processData(const String& data) {
-  // Parse input data
-    sscanf(data.c_str(), "H2S:%f; NH3:%f; Temp:%f; Hum:%f", &sensorData.h2s, &sensorData.nh3, &sensorData.temp, &sensorData.hum);
-
-    char topic[50];
-    snprintf(topic, sizeof(topic), "%s/sensors/response", macAddress);
-
-    // Create JSON object
-    JsonDocument doc;
-
-    Serial.println("--------------------------------------------");
-    // Add sensor data to JSON object
-    doc["Pin1"] = sensorData.temp;  // Gán nhiệt độ cho Pin 1
-    Serial.print("Temperature: "); Serial.println(int(sensorData.temp));
-    
-    doc["Pin2"] = sensorData.hum;   // Gán độ ẩm cho Pin 2
-    Serial.print("Humidity: "); Serial.println(int(sensorData.hum));
-    
-    doc["Pin3"] = sensorData.nh3;   // Gán mức NH3 cho Pin 3
-    Serial.print("NH3: "); Serial.println(int(sensorData.nh3));
-
-    doc["Pin4"] = sensorData.h2s;   // Gán mức H2S cho Pin 4
-    Serial.print("H2S: "); Serial.println(int(sensorData.h2s));
-    Serial.println("--------------------------------------------");
-    char payload[256];
-    serializeJson(doc, payload);
-
-    snprintf(topic, sizeof(topic), "%s/sensors/response", macAddress);
-    publishMessage(topic, payload);
-
-}
-
-void callback(char* topic, byte* payload, unsigned int length) {
-    receivedTopic = String(topic);
-    receivedPayload = String((char*)payload, length);
-    handleMqttMessage();
 }
 
 void handleMqttMessage() {
@@ -124,7 +114,7 @@ void handleMqttMessage() {
             obj["Value"] = stateList[i] ? 1 : 0;
         }
         
-        char payload[512];
+        char payload[1024];
         serializeJson(doc, payload);
         
         char responseTopic[50];
@@ -155,27 +145,99 @@ void handleMqttMessage() {
                 Serial.print("Bật đèn số "); Serial.println(pin);
             } else {
                 Serial.print("Tắt đèn số "); Serial.println(pin);
-            }   
+            }
+            String commandPin = "{\"Pin\":" + String(pin) + ",\"Value\":" + receivedPayload + "}";
+            Serial.print("Command: "); Serial.println(commandPin);
+            STM_Transmit_Process(commandPin);
+            
             char responseTopic[50];
             snprintf(responseTopic, sizeof(responseTopic), "%s/controls/%d/response", macAddress, pin);
-            publishMessage(responseTopic, receivedPayload.c_str());
+            delay(30);
+            String controlResponse = STM_Receive_Process();
+            Serial.print("Control Response: ");
+            Serial.println(controlResponse);
+            publishMessage(responseTopic, controlResponse.c_str());
             }
         }
     }
     else if (receivedTopic == String(macAddress) + "/resetwifi/request") {
         WiFi_Reset();
+    }
+
+    else if (receivedTopic == String(macAddress) + "/power/request") {
+        STM_Transmit_Process("getPowerCurr");
         char responseTopic[50];
-        snprintf(responseTopic, sizeof(responseTopic), "%s/resetwifi/response", macAddress);
         
+        snprintf(responseTopic, sizeof(responseTopic), "%s/power/response", macAddress);
+        delay(30);
         // Tạo nội dung phản hồi
         char payload[512];
-        snprintf(payload, sizeof(payload), "RESETWIFI: %s", resetState); // resetState là biến chứa trạng thái sau khi reset
+        String powerCurr = STM_Receive_Process();
+        snprintf(payload, sizeof(payload), "Power: %s",powerCurr); 
         
         // Gửi thông điệp phản hồi
         publishMessage(responseTopic, payload);
     }
 
 }
+
+void callback(char* topic, byte* payload, unsigned int length) {
+    receivedTopic = String(topic);
+    receivedPayload = String((char*)payload, length);
+    handleMqttMessage();
+}
+
+void MQTT_Setup(){
+    espClient.setCACert(root_ca);
+    client.setServer(mqtt_broker, mqtt_port);
+    client.setCallback(callback);
+}
+
+
+void publishMessage(const char* topic, const char* payload) {
+    if (client.connected()) {
+        client.publish(topic, payload);
+        Serial.println("Published message: " + String(payload) + " to topic: " + String(topic));
+    } else {
+        Serial.println("MQTT client not connected, message not sent.");
+    }
+}
+
+
+void processData(const String& data) {
+  // Parse input data
+    
+    sscanf(data.c_str(), "penCode:%s; nodeId:%s; H2S:%f; NH3:%f; Temp:%f; Hum:%f",&sensorData.penCode, &sensorData.nodeId, &sensorData.h2s, &sensorData.nh3, &sensorData.temp, &sensorData.hum);
+
+    char topic[50];
+    snprintf(topic, sizeof(topic), "%s/sensors/response", macAddress);
+
+    // Create JSON object
+    JsonDocument doc;
+
+    Serial.println("--------------------------------------------");
+    // Add sensor data to JSON object
+
+    doc["Pin1"] = sensorData.temp;  // Gán nhiệt độ cho Pin 1
+    Serial.print("Temperature: "); Serial.println(int(sensorData.temp));
+    
+    doc["Pin2"] = sensorData.hum;   // Gán độ ẩm cho Pin 2
+    Serial.print("Humidity: "); Serial.println(int(sensorData.hum));
+    
+    doc["Pin3"] = sensorData.nh3;   // Gán mức NH3 cho Pin 3
+    Serial.print("NH3: "); Serial.println(int(sensorData.nh3));
+
+    doc["Pin4"] = sensorData.h2s;   // Gán mức H2S cho Pin 4
+    Serial.print("H2S: "); Serial.println(int(sensorData.h2s));
+    Serial.println("--------------------------------------------");
+    char payload[256];
+    serializeJson(doc, payload);
+
+    snprintf(topic, sizeof(topic), "%s/%s/%ssensors/response", macAddress,sensorData.penCode, sensorData.nodeId);
+    publishMessage(topic, payload);
+
+}
+
 
 
 void MQTT_Process(void*){
@@ -186,48 +248,15 @@ void MQTT_Process(void*){
     }
 }
 
-void reconnect() {
-    while (!client.connected()) {
-        Serial.print("Attempting MQTT connection...");
-
-        String clientID = "ESPClient-";
-        clientID += macAddress;
-
-        if (client.connect(clientID.c_str(), mqtt_username, mqtt_password)) {
-        Serial.println("connected");
-
-        // Subscribe to control topics if needed
-        for (int i = 0; i < 16; i++) {
-            char topic[50];
-            snprintf(topic, sizeof(topic), "%s/controls/%d/#", macAddress, i);
-            client.subscribe(topic);
-        }
-        } else {
-        Serial.print("failed, rc=");
-        Serial.print(client.state());  // Print the reason for failure
-        if (client.state() == -1) {
-            Serial.println("Connection refused, incorrect protocol version");
-        } else if (client.state() == -2) {
-            Serial.println("Connection refused, identifier rejected");
-        } else if (client.state() == -3) {
-            Serial.println("Connection refused, broker unavailable");
-        } else if (client.state() == -4) {
-            Serial.println("Connection refused, bad username or password");
-        } else if (client.state() == -5) {
-            Serial.println("Connection refused, not authorized");
-        }
-        Serial.println(" try again in 5 seconds");
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        }
-    }
-}
 
 void MQTT_Send_SensorValue(void*){
     while(1){
-        String receivedData = Lora_receive();
-        if(receivedData != "") 
-            processData(receivedData);
-        vTaskDelay(pdMS_TO_TICKS(100));
+        if (!receivedDataList.empty()){
+            String data = receivedDataList.front();
+            processData(data);
+            receivedDataList.erase(receivedDataList.begin());
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
   
 }
